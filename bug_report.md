@@ -37,17 +37,17 @@
 
 ```mermaid
 quadrantChart
-    title Bug 風險分布（發生可能性 × 影響程度）
-    x-axis 低發生可能性 --> 高發生可能性
-    y-axis 低影響程度 --> 高影響程度
-    quadrant-1 立即處理
-    quadrant-2 重要但可排程
-    quadrant-3 低優先
-    quadrant-4 監控即可
-    BUG-1 匿名存取: [0.7, 0.95]
-    BUG-2 500錯誤: [0.6, 0.7]
-    BUG-3 誤導性403: [0.5, 0.3]
-    BUG-4 UI按鈕: [0.4, 0.45]
+    title Bug Risk Distribution (Likelihood x Impact)
+    x-axis Low Likelihood --> High Likelihood
+    y-axis Low Impact --> High Impact
+    quadrant-1 Act Now
+    quadrant-2 Plan Fix
+    quadrant-3 Monitor
+    quadrant-4 Low Priority
+    BUG-1 Anon Access: [0.7, 0.95]
+    BUG-2 500 Error: [0.6, 0.7]
+    BUG-3 Wrong 403: [0.5, 0.3]
+    BUG-4 UI Button: [0.4, 0.45]
 ```
 
 ---
