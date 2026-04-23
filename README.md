@@ -1,5 +1,12 @@
 ![CI](https://github.com/mikewang71/payout-sandbox-qa/actions/workflows/qa.yml/badge.svg)
 
+## QA 測試報告 Dashboard
+
+| 版本 | 說明 |
+|---|---|
+| 互動版 | 開啟 `dashboard/QA Dashboard.html`，支援 PM/RD 切換、Dark/Light 模式、英文/繁體中文 |
+| 列印版 | 開啟 `dashboard/QA Dashboard-print.html`，可直接列印或存成 PDF |
+
 # Candidate Guide
 
 Thank you for taking the time to complete this QA take-home assignment.
