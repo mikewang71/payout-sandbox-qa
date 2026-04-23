@@ -56,6 +56,134 @@
 
 ---
 
+## 手動調查過程
+
+這份報告的核心發現來自實際操作，而非單純執行測試腳本。
+以下記錄幾個關鍵的手動調查步驟。
+
+### 調查一：匿名存取的真實影響範圍
+
+一開始只測試了 GET /api/payouts 沒有攔截匿名請求，
+後來主動擴大測試範圍，對所有端點補發匿名請求：
+
+- GET /api/wallets/wallet_main → 200，回傳完整錢包餘額
+- GET /api/payouts/:id → 200，回傳完整出款詳情含收款地址
+- POST /api/payouts → 200，成功建立真實出款，錢包餘額立即扣減
+
+最關鍵的發現：匿名 POST 不只成功，系統還把這筆出款歸屬於
+user_admin（createdByUserId: "user_admin"），
+代表無法追蹤真實來源，稽核紀錄會被汙染。
+
+### 調查二：payout_seed_mismatch 的帳本差額
+
+點進 Dashboard 看到 payout_seed_mismatch 顯示
+「Ledger mismatch detected」警示後，
+直接呼叫 API 取得原始數據：
+
+- Payout 聲稱金額：88.88 USDC
+- 帳本實際記錄：80.88 USDC
+- 差額：-8.00 USDC（整數，非浮點精度問題）
+- Provider events：created → submitted → provider_completed（正常）
+
+Provider 端看起來正常完成，但帳本金額比出款金額少 8 USDC，
+代表問題發生在 Worker 將 Provider 回調寫入帳本的過程中。
+
+### 調查三：STUCK payout 的資金狀態
+
+payout_seed_processing 的 Ledger entries 為 0 引起注意，
+進一步調查 Wallet 狀態：
+
+- Payout 金額：33.33 USDC
+- Wallet Pending：10.00 USDC（與 payout 金額不符）
+- Ledger：0 筆紀錄
+
+Wallet Pending 的 10 USDC 疑似來自其他測試產生的 payout，
+代表 33.33 USDC 的資金去向在系統內完全不透明。
+Provider events 顯示 46 分鐘後才 timeout，
+遠超過 SLA 規定的 5 分鐘上限。
+
+### 調查四：跨使用者可見性
+
+文件未定義一位使用者建立的 payout 是否對其他使用者可見。
+主動測試：
+
+- user_admin 建立一筆 5 USDC 的 payout
+- 用 user_viewer 呼叫 GET /api/payouts
+- 結果：viewer 可以看到這筆 payout 的完整資訊，
+  包含收款地址、金額、建立者
+
+此行為規格未定義，標注為待 PM 確認。
+
+---
+
+## 系統流程圖
+
+### Payout 狀態機
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued : POST /api/payouts
+    queued --> processing : Worker 取得任務
+    processing --> completed : Provider 回調成功
+    processing --> failed : Provider 回調失敗
+    processing --> stuck : 超過 SLA 無回調
+    failed --> processing : 手動 Retry
+    stuck --> processing : 手動 Retry
+    completed --> [*]
+
+    note right of stuck
+        BUG 觀察：
+        Ledger entries = 0
+        Wallet Pending 金額不符
+        無自動告警觸發
+    end note
+```
+
+### BUG-1 攻擊路徑
+
+```mermaid
+sequenceDiagram
+    participant 攻擊者
+    participant API
+    participant 資料庫
+    participant 錢包
+
+    攻擊者->>API: POST /api/payouts（無任何 header）
+    Note over API: ❌ 身份驗證 middleware 被繞過
+    API->>資料庫: INSERT payout（principal_id = NULL）
+    API->>錢包: 扣減 availableBalance
+    API-->>攻擊者: HTTP 202 Accepted + payout_id
+    Note over 資料庫: createdByUserId 被記錄為 user_admin
+    Note over 資料庫: 稽核紀錄遭汙染，無法追蹤真實來源
+```
+
+### 正常出款完整流程
+
+```mermaid
+sequenceDiagram
+    participant 使用者
+    participant API
+    participant Worker
+    participant Provider
+    participant 帳本
+
+    使用者->>API: POST /api/payouts（帶 x-user-id）
+    API->>API: 驗證身份與權限
+    API->>API: 檢查 idempotencyKey
+    API->>帳本: 保留資金（Pending）
+    API-->>使用者: HTTP 201 queued
+
+    Worker->>API: 取得待處理任務
+    Worker->>Provider: 送出出款請求
+    Provider-->>Worker: 回調完成
+
+    Worker->>帳本: 寫入 debit 記錄
+    Worker->>API: 更新狀態為 completed
+    API-->>使用者: 狀態更新
+```
+
+---
+
 ## 二、Confirmed Bug 報告
 
 ---
