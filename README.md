@@ -1,0 +1,100 @@
+# Candidate Guide
+
+Thank you for taking the time to complete this QA take-home assignment.
+
+This repository contains a runnable payout sandbox that you should assess as if it were a real product already in active use.
+
+We care more about prioritization, investigation depth, and test design quality than broad coverage for its own sake.
+
+## What we expect from your submission
+
+- API coverage is required
+- UI automation is optional and judgment-based
+- Your work should show risk prioritization, not just execution volume
+- If you intentionally skip something, explain why
+
+## Public docs to read first
+
+- English
+  - `candidate/assignment.md`
+  - `candidate/api_reference.md`
+  - `candidate/sandbox_overview.md`
+- 繁體中文
+  - `candidate/assignment.zh-TW.md`
+  - `candidate/api_reference.zh-TW.md`
+  - `candidate/sandbox_overview.zh-TW.md`
+
+## Stack
+
+- TanStack Start
+- React
+- SQLite
+- Rust worker
+- mise
+
+## Install `mise`
+
+If you are on macOS and use Homebrew:
+
+```bash
+brew install mise
+echo 'eval "$(mise activate zsh)"' >> ~/.zshrc
+exec zsh
+```
+
+If you use another shell or platform, check the official install guide:
+
+- https://mise.jdx.dev/getting-started.html
+
+## Quick start
+
+```bash
+mise install
+mise run setup
+mise run dev
+```
+
+Default app URL:
+
+```bash
+http://localhost:3000
+```
+
+## Useful commands
+
+- `mise run setup` - install dependencies and initialize the database
+- `mise run dev` - start the web app and the Rust worker
+- `mise run reset` - rebuild the SQLite database from schema and seed data
+
+Async payout progression depends on the Rust worker being running. If the worker is not running, delayed or long-running payout states will not advance normally.
+It is acceptable to reset the sandbox back to the seeded state during investigation. If you do, mention that in your notes or reproduction steps.
+
+## Test accounts
+
+The UI can switch between seeded users from the dashboard.
+
+You can also impersonate users in API tests using the `x-user-id` header.
+
+Available seeded users:
+
+- `user_admin`
+- `user_operator`
+- `user_viewer`
+
+## Public product rules
+
+- Currency is currently `USDC`
+- Recipient addresses use an Ethereum-like `0x...` format
+- Payouts are processed asynchronously
+- Some provider modes are intentionally unstable
+- Not every issue in the sandbox is announced up front
+
+## Submission expectations
+
+Submit whatever format the interviewer requested, but your work should clearly show:
+
+- Your risk assessment
+- API coverage
+- Chosen UI coverage and why you chose it
+- Bugs or suspicious behaviors you found
+- Any assumptions and tradeoffs

@@ -1,0 +1,33 @@
+node_modules
+apps/web/node_modules
+apps/web/.tanstack
+apps/web/.output
+apps/web/dist
+apps/web/.nitro
+apps/web/.vinxi
+apps/web/routeTree.gen.ts
+.env
+.env.local
+database/*.sqlite
+database/*.sqlite-shm
+database/*.sqlite-wal
+target
+.DS_Store
+internal
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Claude
+.claude/
+
+# Project source (not part of QA submission)
+database/
+apps/
+.vite/
+
+# Misc
+*.log
