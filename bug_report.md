@@ -15,6 +15,7 @@
    - [BUG-1：匿名請求未被攔截（Security P0）](#bug-1匿名請求未被攔截)
    - [BUG-2：缺少 idempotencyKey 導致 Server 500](#bug-2缺少-idempotencykey-導致-server-500)
    - [BUG-3：缺少 walletId 回傳誤導性的 403](#bug-3缺少-walletid-回傳誤導性的-403)
+   - [BUG-4：viewer 可見並可點擊 Execute Scenario 按鈕](#bug-4viewer-可見並可點擊-execute-scenario-按鈕)
 3. [通過測試的覆蓋摘要](#三通過測試的覆蓋摘要)
 4. [刻意跳過的項目與原因](#四刻意跳過的項目與原因)
 5. [Seed Data Ledger Mismatch 調查](#五seed-data-ledger-mismatch-調查)
@@ -317,9 +318,59 @@ def test_missing_walletId_rejected(self):
 
 ---
 
+### BUG-4：viewer 可見並可點擊 Execute Scenario 按鈕
+
+**嚴重等級：** 🟡 Medium（UI P1）
+**影響範圍：** Dashboard 首頁建立 payout 表單
+**狀態：** Confirmed Bug（UI 層）
+
+#### 觀察到的現象
+
+切換為 `viewer` 身份後，首頁的「Execute Scenario」送出按鈕仍然可見且**可以點擊**（非 disabled 狀態）。viewer 可以填寫完整的出款表單並嘗試送出，直到收到 API 回傳的 403 才得知自己無權操作。
+
+#### 為什麼重要／風險影響
+
+1. **防線只剩 API 層**：目前 RBAC 執行完全依賴後端拒絕，UI 沒有任何角色判斷。這代表若 API 層的 403 邏輯有任何疏漏（例如某個邊界情境），viewer 便可能意外成功送出出款
+2. **使用者體驗差**：viewer 看到可操作的表單，填完資料送出後才被拒絕，是不友善且令人困惑的互動流程
+3. **與文件規格不符**：`sandbox_overview` 明確說明 viewer「沒有權限建立或重試任何 Payout」，UI 應在顯示層就執行此規則
+
+#### 證據
+
+**Playwright 測試（`tests/test_ui.py`）：**
+```python
+def test_viewer_cannot_see_create_button(page: Page):
+    goto_home(page)
+    switch_user(page, "viewer")
+
+    btn = page.get_by_role("button", name="Execute Scenario")
+    is_visible = btn.is_visible() if btn.count() > 0 else False
+    is_disabled = btn.is_disabled() if btn.count() > 0 else True
+
+    assert not is_visible or is_disabled
+# 結果：FAILED
+# AssertionError: [UI BUG] viewer 看得到可點擊的「Execute Scenario」按鈕
+# is_visible=True, is_disabled=False
+```
+
+**對照組（API 層正確攔截）：**
+```http
+POST /api/payouts
+x-user-id: user_viewer
+
+→ HTTP 403 Forbidden（API 層正確拒絕）
+```
+
+#### 診斷結論
+
+**Confirmed Bug（UI 層）。** API 層已正確拒絕 viewer 的出款請求（HTTP 403），但 UI 層未依角色控制表單的可見性或互動性。防禦縱深不足——理想情況下，UI 與 API 應同時執行 RBAC 規則。
+
+**建議修復：** 在前端根據 session 中的使用者角色，對 viewer 隱藏或 disable「Execute Scenario」按鈕及整個 Create Payout 表單區塊。
+
+---
+
 ## 三、通過測試的覆蓋摘要
 
-共 **35 個測試案例，32 個通過（91%）**。3 個 FAILED 均為上述已記錄的 confirmed bugs，非測試本身的問題。
+共 **40 個測試案例（35 API + 5 UI），36 個通過（90%）**。4 個 FAILED 均為上述已記錄的 confirmed bugs，非測試本身的問題。
 
 ### 3.1 角色權限（RBAC）— 7/9 通過
 
@@ -394,16 +445,22 @@ def test_missing_walletId_rejected(self):
 
 ### 4.1 UI 自動化
 
-**跳過原因：** 基於以下判斷，決定將全部時間投入 API 測試層，不實作 UI 自動化。
+**決策：已補充，但範圍有限（`tests/test_ui.py`，5 個案例）。**
 
-1. **風險集中在 API 層**：本系統的三個 confirmed bugs 均在 API 層，且均非透過 UI 互動才能觸發。UI 自動化在此場景不提供額外的 bug 發現價值
-2. **API 測試覆蓋更穩定**：UI 自動化對前端渲染邏輯、版面配置變化較敏感，維護成本高。API 測試對業務邏輯的斷言更直接且可靠
-3. **時間成本考量**：若要達到等效的業務邏輯覆蓋，UI 自動化需要額外的 selector 維護與非同步等待處理，而 API 層已能完整覆蓋相同的測試目標
+初期判斷風險集中在 API 層，後續評估後決定針對以下高價值場景補充 UI 驗證：
 
-**若未來要補充 UI 自動化，建議優先覆蓋：**
-- 角色切換的 UI 視覺反應（例如「建立 Payout」按鈕在 viewer 身份下是否正確隱藏或 disabled）
-- `Ledger Mismatch` 警示訊號的 Dashboard 顯示
-- `never_callback` 後 stuck 狀態的 UI 呈現方式
+| 測試案例 | 選題理由 |
+|----------|----------|
+| viewer 看不到 Execute Scenario 按鈕 | 驗證 UI 層是否執行 RBAC，不只靠 API 拒絕 |
+| admin 同時看到兩個錢包 | 確認 wallet_ops 卡片依角色正確顯示 |
+| operator 只看到 wallet_main | 驗證 UI 依角色過濾錢包卡片 |
+| Ledger mismatch 警示可見 | 確認 `ledgerMismatch` 訊號確實呈現在 Dashboard |
+| Stuck payout 狀態標籤可見 | 確認 STUCK 狀態在列表中正確渲染 |
+
+**刻意跳過的 UI 場景：**
+- **完整建立 payout 流程**：業務邏輯已由 API 測試完整驗證，UI 層僅做表單互動，重複覆蓋價值低
+- **Provider 事件時間軸細節**：詳情頁的動態渲染需要等待非同步狀態更新，不穩定且已由 API `test_provider_events_exist_after_completion` 覆蓋
+- **Session 切換 UI 互動**：改用 `POST /api/session` 切換身份，比操作下拉選單更穩定可靠
 
 ### 4.2 `delayed_success` 模式的深度測試
 
