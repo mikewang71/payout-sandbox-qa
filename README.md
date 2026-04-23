@@ -1,3 +1,5 @@
+![CI](https://github.com/mikewang71/payout-sandbox-qa/actions/workflows/qa.yml/badge.svg)
+
 # Candidate Guide
 
 Thank you for taking the time to complete this QA take-home assignment.
@@ -88,6 +90,18 @@ Available seeded users:
 - Payouts are processed asynchronously
 - Some provider modes are intentionally unstable
 - Not every issue in the sandbox is announced up front
+
+## Running the QA tests
+
+本地執行需要啟動 payout sandbox（`mise run dev`），CI 環境執行 test collection 驗證套件結構。
+
+| 環境 | 指令 | 說明 |
+|------|------|------|
+| 本地 | `pytest tests/test_api.py -v` | 需先執行 `mise run dev` 啟動 sandbox |
+| 本地 | `pytest tests/test_ui.py -v` | 需安裝 `playwright install firefox` |
+| CI | `pytest tests/test_api.py --collect-only` | 驗證套件語法與結構，不需 sandbox |
+
+詳細說明請見 [tests/README.md](tests/README.md)，測試發現請見 [bug_report.md](bug_report.md)。
 
 ## Submission expectations
 

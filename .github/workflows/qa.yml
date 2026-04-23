@@ -1,0 +1,32 @@
+name: QA Test Suite
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  collect:
+    name: Validate test suite structure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: tests/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Collect tests (syntax & import check)
+        # Sandbox is not running in CI — this step validates that all test
+        # files parse correctly and pytest can discover every test case.
+        # Full execution requires: mise run dev (Rust worker + Node.js app).
+        run: pytest tests/test_api.py --collect-only -q
