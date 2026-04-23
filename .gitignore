@@ -31,3 +31,12 @@ apps/
 
 # Misc
 *.log
+
+# Project root files not part of QA submission
+candidate/
+mise.toml
+package.json
+package-lock.json
+qaseio.lock
+build/
+.env.example
