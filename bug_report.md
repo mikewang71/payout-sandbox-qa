@@ -1,10 +1,54 @@
 # Payout Sandbox QA 測試報告
 
-**系統：** Payout Sandbox（財務出款系統）
-**測試日期：** 2026-04-20
-**測試方式：** Black-box / Gray-box API 測試
-**測試工具：** Python 3.12 + requests + pytest
-**測試入口：** `http://localhost:3000`
+> 🚨 **本次測試發現重大安全漏洞，建議上線前優先修復**
+
+| 項目 | 內容 |
+|---|---|
+| **系統** | Payout Sandbox（財務出款系統）|
+| **測試日期** | 2026-04-23 |
+| **測試方式** | Black-box / Gray-box |
+| **測試工具** | Python 3.12 · requests · pytest · Playwright |
+| **Build** | payout-svc 2026.04.22-rc3 |
+| **環境** | staging.capitallayer.internal |
+
+---
+
+## 📊 執行摘要
+
+| 總案例數 | ✅ 通過 | ❌ 失敗 | 通過率 |
+|---|---|---|---|
+| 40 | 36 | 4 | 90% |
+
+> ⚠️ **Ship-blocked** — 通過率 90%，但 BUG-1（匿名出款）屬上線前 Blocking Issue
+
+**本次測試發現：**
+- 🔴 1 個必須上線前修復的安全漏洞（任何人不需登入即可發起出款）
+- 🔴 1 個伺服器穩定性問題（特定輸入導致 500 崩潰）
+- 🟡 2 個中等風險問題（錯誤訊息誤導、UI 權限控制缺失）
+
+**運作正常的核心機制：**
+- ✅ 防重複出款（冪等性）完全正確
+- ✅ 帳本對帳機制正確
+- ✅ 已知帳號的角色權限邊界正確執行
+
+---
+
+## 🗺️ 風險矩陣
+
+```mermaid
+quadrantChart
+    title Bug 風險分布（發生可能性 × 影響程度）
+    x-axis 低發生可能性 --> 高發生可能性
+    y-axis 低影響程度 --> 高影響程度
+    quadrant-1 立即處理
+    quadrant-2 重要但可排程
+    quadrant-3 低優先
+    quadrant-4 監控即可
+    BUG-1 匿名存取: [0.7, 0.95]
+    BUG-2 500錯誤: [0.6, 0.7]
+    BUG-3 誤導性403: [0.5, 0.3]
+    BUG-4 UI按鈕: [0.4, 0.45]
+```
 
 ---
 
@@ -56,63 +100,76 @@
 
 ---
 
+## 📋 測試套件覆蓋率
+
+| 套件 | 通過/總數 | 結果 | 備註 |
+|---|---|---|---|
+| 角色權限 RBAC | 8/9 | ⚠️ | UI 層落後於 API |
+| 冪等性 | 3/3 | ✅ | 所有 key 正確 |
+| 輸入驗證 | 9/11 | ⚠️ | 2 個 edge case 處理錯誤 |
+| 重試行為 | 4/4 | ✅ | 正確 |
+| 帳本對帳 | 5/5 | ✅ | 但見 STUCK 調查 |
+| UI 角色權限控制 | 4/5 | ⚠️ | Viewer 仍可看到按鈕 |
+
+---
+
 ## 手動調查過程
 
 這份報告的核心發現來自實際操作，而非單純執行測試腳本。
 以下記錄幾個關鍵的手動調查步驟。
 
-### 調查一：匿名存取的真實影響範圍
+> 📍 **調查一：匿名存取的真實影響範圍**
+>
+> 一開始只測試了 GET /api/payouts 沒有攔截匿名請求，
+> 後來主動擴大測試範圍，對所有端點補發匿名請求：
+>
+> - GET /api/wallets/wallet_main → 200，回傳完整錢包餘額
+> - GET /api/payouts/:id → 200，回傳完整出款詳情含收款地址
+> - POST /api/payouts → 200，成功建立真實出款，錢包餘額立即扣減
+>
+> 最關鍵的發現：匿名 POST 不只成功，系統還把這筆出款歸屬於
+> user_admin（createdByUserId: "user_admin"），
+> 代表無法追蹤真實來源，稽核紀錄會被汙染。
 
-一開始只測試了 GET /api/payouts 沒有攔截匿名請求，
-後來主動擴大測試範圍，對所有端點補發匿名請求：
+> 📍 **調查二：payout_seed_mismatch 的帳本差額**
+>
+> 點進 Dashboard 看到 payout_seed_mismatch 顯示
+> 「Ledger mismatch detected」警示後，
+> 直接呼叫 API 取得原始數據：
+>
+> - Payout 聲稱金額：88.88 USDC
+> - 帳本實際記錄：80.88 USDC
+> - 差額：-8.00 USDC（整數，非浮點精度問題）
+> - Provider events：created → submitted → provider_completed（正常）
+>
+> Provider 端看起來正常完成，但帳本金額比出款金額少 8 USDC，
+> 代表問題發生在 Worker 將 Provider 回調寫入帳本的過程中。
 
-- GET /api/wallets/wallet_main → 200，回傳完整錢包餘額
-- GET /api/payouts/:id → 200，回傳完整出款詳情含收款地址
-- POST /api/payouts → 200，成功建立真實出款，錢包餘額立即扣減
+> 📍 **調查三：STUCK payout 的資金狀態**
+>
+> payout_seed_processing 的 Ledger entries 為 0 引起注意，
+> 進一步調查 Wallet 狀態：
+>
+> - Payout 金額：33.33 USDC
+> - Wallet Pending：10.00 USDC（與 payout 金額不符）
+> - Ledger：0 筆紀錄
+>
+> Wallet Pending 的 10 USDC 疑似來自其他測試產生的 payout，
+> 代表 33.33 USDC 的資金去向在系統內完全不透明。
+> Provider events 顯示 46 分鐘後才 timeout，
+> 遠超過 SLA 規定的 5 分鐘上限。
 
-最關鍵的發現：匿名 POST 不只成功，系統還把這筆出款歸屬於
-user_admin（createdByUserId: "user_admin"），
-代表無法追蹤真實來源，稽核紀錄會被汙染。
-
-### 調查二：payout_seed_mismatch 的帳本差額
-
-點進 Dashboard 看到 payout_seed_mismatch 顯示
-「Ledger mismatch detected」警示後，
-直接呼叫 API 取得原始數據：
-
-- Payout 聲稱金額：88.88 USDC
-- 帳本實際記錄：80.88 USDC
-- 差額：-8.00 USDC（整數，非浮點精度問題）
-- Provider events：created → submitted → provider_completed（正常）
-
-Provider 端看起來正常完成，但帳本金額比出款金額少 8 USDC，
-代表問題發生在 Worker 將 Provider 回調寫入帳本的過程中。
-
-### 調查三：STUCK payout 的資金狀態
-
-payout_seed_processing 的 Ledger entries 為 0 引起注意，
-進一步調查 Wallet 狀態：
-
-- Payout 金額：33.33 USDC
-- Wallet Pending：10.00 USDC（與 payout 金額不符）
-- Ledger：0 筆紀錄
-
-Wallet Pending 的 10 USDC 疑似來自其他測試產生的 payout，
-代表 33.33 USDC 的資金去向在系統內完全不透明。
-Provider events 顯示 46 分鐘後才 timeout，
-遠超過 SLA 規定的 5 分鐘上限。
-
-### 調查四：跨使用者可見性
-
-文件未定義一位使用者建立的 payout 是否對其他使用者可見。
-主動測試：
-
-- user_admin 建立一筆 5 USDC 的 payout
-- 用 user_viewer 呼叫 GET /api/payouts
-- 結果：viewer 可以看到這筆 payout 的完整資訊，
-  包含收款地址、金額、建立者
-
-此行為規格未定義，標注為待 PM 確認。
+> 📍 **調查四：跨使用者可見性**
+>
+> 文件未定義一位使用者建立的 payout 是否對其他使用者可見。
+> 主動測試：
+>
+> - user_admin 建立一筆 5 USDC 的 payout
+> - 用 user_viewer 呼叫 GET /api/payouts
+> - 結果：viewer 可以看到這筆 payout 的完整資訊，
+>   包含收款地址、金額、建立者
+>
+> 此行為規格未定義，標注為待 PM 確認。
 
 ---
 
@@ -189,6 +246,8 @@ sequenceDiagram
 ---
 
 ### BUG-1：匿名請求未被攔截
+
+`🔴 P0 緊急` `RBAC · API` `Open · @backend` `Confirmed Bug`
 
 **嚴重等級：** 🔴 P0 緊急（上線前 Blocking Issue）
 **影響範圍：** ~~`GET /api/payouts`（推測其他 GET 端點亦受影響）~~ → **全 API 端點確認，包含寫入操作**
@@ -306,6 +365,8 @@ x-user-id: user_viewer
 
 ### BUG-2：缺少 `idempotencyKey` 導致 Server 500
 
+`🔴 P0 緊急` `輸入驗證 · API` `Open · @backend` `Confirmed Bug`
+
 **嚴重等級：** 🔴 High（P0）
 **影響範圍：** `POST /api/payouts`
 **狀態：** Confirmed Bug
@@ -377,6 +438,8 @@ def test_missing_idempotencyKey_causes_500(self):
 
 ### BUG-3：缺少 `walletId` 回傳誤導性的 403
 
+`🟡 Medium` `輸入驗證 · API` `Open · @backend` `Confirmed Bug`
+
 **嚴重等級：** 🟡 Medium（P1）
 **影響範圍：** `POST /api/payouts`
 **狀態：** Confirmed Bug（嚴重性較低，但行為不正確）
@@ -447,6 +510,8 @@ def test_missing_walletId_rejected(self):
 ---
 
 ### BUG-4：viewer 可見並可點擊 Execute Scenario 按鈕
+
+`🟡 Medium` `RBAC · UI` `Open · @frontend` `Confirmed Bug`
 
 **嚴重等級：** 🟡 Medium（UI P1）
 **影響範圍：** Dashboard 首頁建立 payout 表單
@@ -827,3 +892,17 @@ python3 -m pytest tests/test_api.py::TestLedgerReconciliation -v
 ```
 
 3 個 FAILED 測試均為本報告記錄的 confirmed bugs，測試本身設計正確，其 FAILED 狀態即為 bug 存在的直接證據。
+
+---
+
+## 💬 給 PM 的一句話總結
+
+> 本次測試發現 **1 個必須上線前修復的安全漏洞**（任何人不需登入即可發起出款，資金面臨直接風險）、**1 個伺服器穩定性問題**、以及 **2 個中等風險問題**。
+>
+> 核心的防重複匯款機制運作正常。
+>
+> 建議工程師優先處理 **BUG-1** 和 **BUG-2** 後再評估上線時程。
+
+---
+
+`📅 2026-04-23 · 👤 Mike Wang · 🔒 Capital Layer 內部文件 · 請勿外流`
