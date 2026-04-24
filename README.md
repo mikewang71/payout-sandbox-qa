@@ -12,7 +12,17 @@ Capital Layer QA Take-home 作業提交
 - pytest + requests + playwright
 - 本地需啟動 payout sandbox（`mise run dev`）
 
-## 執行方式
+## 測試執行說明
+
+### CI（GitHub Actions）
+每次 push 自動執行語法驗證與測試收集，確認套件結構正確。
+
+### 本地完整執行
+需先啟動 payout sandbox：
+```bash
+cd payout-sandbox-main
+mise run dev
+```
 
 安裝依賴：
 ```bash
@@ -20,22 +30,20 @@ pip install -r tests/requirements.txt
 playwright install firefox
 ```
 
-執行 API 測試：
+再執行測試：
 ```bash
+# API 測試（約 8 秒）
 pytest tests/test_api.py -v
-```
 
-執行 UI 測試：
-```bash
+# UI 測試（約 7 秒，需 Firefox）
 pytest tests/test_ui.py -v
-```
 
-執行全部：
-```bash
-pytest tests/ -v
-```
+# Provider 情境測試（約 5 分鐘）
+pytest tests/test_provider_scenarios.py -v --timeout=180
 
-預期結果：40 案例，36 passed，4 failed（均為 confirmed bugs）
+# 全部一起跑
+pytest tests/ -v --timeout=180
+```
 
 ## 測試策略
 
@@ -57,10 +65,11 @@ pytest tests/ -v
 
 ## 測試結構
 
-| 類別 | 檔案 | 案例數 |
-|---|---|---|
-| API 測試 | tests/test_api.py | 35 |
-| UI 測試 | tests/test_ui.py | 5 |
+| 類別 | 檔案 | 案例數 | 執行方式 |
+|---|---|---|---|
+| API 測試 | tests/test_api.py | 35 | CI + 本地 |
+| UI 測試 | tests/test_ui.py | 5 | 本地 |
+| Provider 情境 | tests/test_provider_scenarios.py | 23 | 本地（需完整 sandbox）|
 
 ## 主要發現
 

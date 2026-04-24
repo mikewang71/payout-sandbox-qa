@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: ["**"]
 
+# test_provider_scenarios.py 需要完整的 payout sandbox 環境
+# 包含 Rust worker、SQLite、Node.js，且 never_callback 情境需等待 ~46 分鐘
+# 此測試套件設計為本地執行，CI 僅驗證語法與收集結構
+
 jobs:
   collect:
     name: Validate test suite structure
@@ -25,8 +29,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r tests/requirements.txt
 
-      - name: Collect tests (syntax & import check)
+      - name: Collect tests — API suite (syntax & import check)
         # Sandbox is not running in CI — this step validates that all test
         # files parse correctly and pytest can discover every test case.
         # Full execution requires: mise run dev (Rust worker + Node.js app).
         run: pytest tests/test_api.py --collect-only -q
+
+      - name: Collect tests — Provider scenarios (syntax & import check)
+        # test_provider_scenarios.py requires a live sandbox + Rust worker.
+        # never_callback scenarios take ~46 minutes to reach stuck state.
+        # CI only validates syntax and collection; run locally with --timeout=180.
+        run: pytest tests/test_provider_scenarios.py --collect-only -q
