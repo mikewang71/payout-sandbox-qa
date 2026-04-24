@@ -666,6 +666,21 @@ x-user-id: user_viewer
 
 **小結：** 正常流程的帳本對帳機制運作正確。Seed data 中刻意設計的 mismatch 情境也可被測試正確偵測。
 
+### 3.6 Provider 情境端對端測試 — 23/23 通過
+
+| 情境 | 案例數 | 結果 | 關鍵驗證點 |
+|---|---|---|---|
+| success | 7 | ✅ 全過 | 狀態轉換、帳本金額、wallet 餘額 |
+| failed | 4 | ✅ 全過 | 失敗狀態、ledger 為空、可 retry |
+| delayed_success | 3 | ✅ 全過 | 最終完成、帳本正確 |
+| duplicate_callback | 4 | ✅ 全過 | 帳本只寫一筆、event 去重正確 |
+| never_callback | 5 | ✅ 全過 | stuck 狀態、ledger 為空、可 retry |
+
+**額外觀察（規格外發現）：**
+`duplicate_callback` 模式下，系統在 event 層也做了去重——
+即使 Provider 回調兩次，`provider_completed` 事件只記錄一筆。
+此行為未在文件中說明，但與帳本防重複邏輯一致，屬正確設計。
+
 ---
 
 ## 四、刻意跳過的項目與原因
